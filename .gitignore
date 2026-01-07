@@ -1,0 +1,38 @@
+# Build directories
+build/
+out/
+bin/
+lib/
+*.exe
+*.lib
+*.dll
+*.obj
+*.pdb
+*.ilk
+*.exp
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+CTestTestfile.cmake
+*.cmake
+
+# VS Code
+.vscode/
+
+# IDE
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.user
+*.isln
+*.sln
+
+# Dependencies
+_deps/
+
+# System
+thumbs.db
+.DS_Store

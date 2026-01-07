@@ -1,0 +1,43 @@
+{
+  "audio": {
+    "sample_rate": 48000,
+    "frames_per_buffer": 480,
+    "input_channels": 3,
+    "output_channels": 2,
+    "input_device_id": -1,
+    "output_device_id": -1,
+    "channel_map": [
+      0,
+      1,
+      2
+    ],
+    "output_mode": "stereo_duplicate",
+    "master_gain": 1.0
+  },
+  "runtime": {
+    "bypass": true
+  },
+  "gsc": {
+    "M": 96,
+    "alpha": 0.005,
+    "eps": 1e-8,
+    "mu_max": 0.01,
+    "eta_max": 0.005,
+    "leak_lambda": 1e-5,
+    "g_lo": 0.10,
+    "g_hi": 0.30,
+    "beta_min": -2.0,
+    "beta_max": 2.0
+  },
+  "ws": {
+    "enable": true,
+    "host": "127.0.0.1",
+    "port": 8080,
+    "static_dir": "web"
+  },
+  "serial": {
+    "enable": false,
+    "port": "",
+    "baud": 115200
+  }
+}
