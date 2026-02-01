@@ -3,13 +3,20 @@ build/
 out/
 bin/
 lib/
+dist/
+
+# Object files and libraries
 *.exe
 *.lib
 *.dll
 *.obj
+*.o
+*.a
 *.pdb
 *.ilk
 *.exp
+*.so
+*.dylib
 
 # CMake
 CMakeCache.txt
@@ -18,21 +25,26 @@ cmake_install.cmake
 Makefile
 CTestTestfile.cmake
 *.cmake
+compile_commands.json
 
-# VS Code
+# Logs
+*.log
+
+# IDEs
 .vscode/
-
-# IDE
+.idea/
 .vs/
-*.vcxproj
-*.vcxproj.filters
-*.user
-*.isln
+*.vcxproj*
 *.sln
+*.user
+
+# System
+.DS_Store
+thumbs.db
 
 # Dependencies
 _deps/
 
-# System
-thumbs.db
-.DS_Store
+# Python (if any)
+__pycache__/
+*.py[cod]

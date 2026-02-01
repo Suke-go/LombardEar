@@ -1,0 +1,206 @@
+\documentclass[manuscript,review,anonymous]{acmart}
+
+% NOTE:
+% - Review (single-column): manuscript
+% - Camera-ready (often two-column): switch to \documentclass[sigconf]{acmart}
+%   according to your venue/TAPS instructions.
+
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\settopmatter{printfolios=true}
+\renewcommand\footnotetextcopyrightpermission[1]{} % no review boilerplate
+
+\begin{document}
+
+\title{LombardEar: A System that Harmonizes People's Voice and Noisy Environment in Conversation}
+
+% TODO (camera-ready): fill authors/affiliations and remove anonymous option.
+% \author{...}
+% \affiliation{...}
+% \email{...}
+
+\begin{abstract}
+Conversational listening in noisy environments can impose substantial cognitive load, especially for listeners with age-related hearing loss or hidden hearing difficulties. We present LombardEar, a low-latency, research-grade assistive listening system that aims to make a target conversational stream more salient without relying on occluding isolation. LombardEar implements a time-domain three-microphone Generalized Sidelobe Canceller (GSC) with leakage-aware dual-loop adaptation, followed by an optional real-time DSP chain (acoustic echo cancellation, automatic gain control, and noise gating). By prioritizing end-to-end latency, the system supports open-ear usage where direct sound and processed sound must remain time-aligned to avoid comb-filter artifacts. We describe the algorithmic design and a real-time implementation on commodity platforms, and discuss how the architecture can support future wearable delivery mechanisms.
+\end{abstract}
+
+% TODO: Update CCS/keywords to match the actual venue taxonomy.
+\begin{CCSXML}
+<ccs2012>
+ <concept>
+  <concept_id>10003120.10003121.10003124</concept_id>
+  <concept_desc>Human-centered computing~Sound-based input / output</concept_desc>
+  <concept_significance>500</concept_significance>
+ </concept>
+ <concept>
+  <concept_id>10002951.10003260.10003282</concept_id>
+  <concept_desc>Information systems~Multimedia information systems</concept_desc>
+  <concept_significance>100</concept_significance>
+ </concept>
+</ccs2012>
+\end{CCSXML}
+\ccsdesc[500]{Human-centered computing~Sound-based input / output}
+
+\keywords{assistive listening, hearing aids, beamforming, adaptive filtering, auditory scene analysis, low latency}
+
+\maketitle
+
+\section{Introduction}
+The ``cocktail party effect''---the ability to selectively attend to one conversation among many---has long been used to characterize how humans cope with noisy social environments~\cite{todo-cocktail-party}. This ability is not merely a property of the ear; it reflects a sophisticated cognitive process that organizes acoustic input into meaningful auditory streams. Bregman formalized this process as \emph{Auditory Scene Analysis (ASA)}~\cite{todo-asa-bregman}, emphasizing that the brain continuously groups and segregates sound based on cues such as onset synchrony, harmonicity, and spatial structure.
+
+However, modern acoustic environments are increasingly complex, and many listeners experience degraded stream segregation due to age-related hearing loss or ``hidden'' hearing difficulties that are not captured well by standard audiograms~\cite{todo-listening-effort}. Listening in noise often increases \emph{listening effort}, contributing to fatigue and reduced social participation. While conventional hearing aids and personal sound amplification products often attempt to improve signal-to-noise ratio (SNR), they may apply largely uniform amplification or context-insensitive noise suppression, which can fail to resolve the core cocktail-party challenge: preserving the target stream while adapting to dynamic interference.
+
+LombardEar takes a complementary stance. Rather than treating the environment as something to block, we aim to \emph{increase the salience of a target conversational stream} while keeping the ear acoustically ``open.'' This is motivated by ASA: if assistive processing can enhance cues that support stream formation (e.g., spatial contrast and interference rejection) while maintaining natural timing alignment with direct sound, listeners may experience reduced effort without sacrificing environmental awareness.
+
+Technically, LombardEar implements a time-domain three-microphone Generalized Sidelobe Canceller (GSC) beamformer with leakage-aware dual-loop adaptation. The design targets low end-to-end latency, which is critical in open-ear usage: if the processed path is delayed relative to the direct path, the mixture can produce audible comb filtering and timbral coloration. Our system is designed as a real-time platform with a controllable DSP chain and monitoring, enabling rapid experimentation with parameters and processing blocks.
+
+\section{Related Work}
+% TODO: Replace with actual citations (do not leave as placeholders for submission).
+We will position LombardEar relative to prior work in (1) cocktail-party listening and ASA-inspired assistive processing, (2) beamforming and adaptive interference cancellation for hearing aids and open-fit devices, and (3) low-latency audio pipelines and user-facing control/monitoring for assistive audio systems. We also plan to discuss relevant recent work reported at CHI 2024 (TODO).
+
+\section{Method}
+\subsection{Problem Setting and Design Goals}
+Given three microphone signals \(x_L[n]\), \(x_R[n]\), and \(x_B[n]\) (left, right, and back/reference), the goal is to produce an enhanced output \(y[n]\) that emphasizes the frontal conversational stream while suppressing interference, under strict latency constraints suitable for open-ear listening. We prioritize:
+(i) interference suppression without strong occlusion,
+(ii) stability under leakage and non-stationary noise,
+and (iii) low algorithmic and I/O latency.
+
+\subsection{Time-Domain 3-Channel GSC Beamformer}
+LombardEar follows the Generalized Sidelobe Canceller (GSC) formulation: a \emph{fixed beamformer} produces a desired signal \(d[n]\), while a \emph{blocking matrix} produces reference channels that ideally contain interference but minimal target speech. An adaptive interference canceller (AIC) then estimates interference and subtracts it from \(d[n]\).
+
+\paragraph{Fixed beamformer.}
+We define a mid signal:
+\[
+\mathrm{mid}[n] = \tfrac{1}{2}(x_L[n] + x_R[n]),
+\]
+and use it as the desired signal \(d[n] = \mathrm{mid}[n]\).
+
+\paragraph{Blocking matrix and leakage-aware reference.}
+We construct two reference channels:
+\[
+u_1[n] = x_L[n] - x_R[n],
+\qquad
+u_2[n] = \mathrm{mid}[n] - \beta[n]\cdot x_B[n],
+\]
+where \(\beta[n]\) adapts to compensate leakage/coupling between the back microphone and the mid signal.
+
+\paragraph{Adaptive interference canceller (AIC).}
+We maintain two FIR filters \(w_1\in\mathbb{R}^M\) and \(w_2\in\mathbb{R}^M\) over the most recent \(M\) samples of \(u_1\) and \(u_2\). The interference estimate is
+\[
+\hat{y}[n] = \sum_{k=0}^{M-1} w_1[k]\cdot u_1[n-k] \;+\; \sum_{k=0}^{M-1} w_2[k]\cdot u_2[n-k].
+\]
+The enhanced (error) output is \(e[n] = d[n] - \hat{y}[n]\). We output \(y[n]=e[n]\).
+
+\subsection{Leakage-Aware Dual-Loop Adaptation}
+In open-ear settings, the target stream can leak into reference channels, risking target cancellation. We therefore use a leakage indicator to modulate adaptation.
+
+\paragraph{Leakage correlation estimate.}
+We maintain exponentially-weighted moving averages (EWMA) of energies and cross-correlation:
+\[
+E_d \leftarrow (1-\alpha)E_d + \alpha d^2,\;\;
+E_{u2} \leftarrow (1-\alpha)E_{u2} + \alpha u_2^2,\;\;
+E_{du2} \leftarrow (1-\alpha)E_{du2} + \alpha d\,u_2.
+\]
+We compute a normalized correlation
+\[
+\gamma = \frac{E_{du2}}{\sqrt{E_dE_{u2}}+\varepsilon}, \quad g=|\gamma|.
+\]
+
+\paragraph{Soft rate control.}
+We map \(g\) to a control variable \(p\in[0,1]\) using thresholds \(g_{\mathrm{lo}},g_{\mathrm{hi}}\):
+\[
+p=
+\begin{cases}
+0 & g\le g_{\mathrm{lo}}\\
+1 & g\ge g_{\mathrm{hi}}\\
+\frac{g-g_{\mathrm{lo}}}{g_{\mathrm{hi}}-g_{\mathrm{lo}}} & \text{otherwise.}
+\end{cases}
+\]
+When leakage is high (\(p\to1\)), we slow the AIC update to avoid canceling target speech and instead allow \(\beta\) to adapt; when leakage is low (\(p\to0\)), we favor aggressive interference cancellation.
+
+\paragraph{AIC update (leaky NLMS).}
+Let \(P_u = \sum u_1^2 + \sum u_2^2\) over the \(M\)-sample windows. We set
+\[
+\mu_{\mathrm{AIC}} = \mu_{\max}(1-p)^2,
+\]
+and apply a leaky NLMS update
+\[
+w \leftarrow (1-\lambda)w + \frac{\mu_{\mathrm{AIC}}\,e}{P_u+\varepsilon}\,u,
+\]
+for both \(w_1\) with \(u_1\) and \(w_2\) with \(u_2\), where \(\lambda\) is the leak factor.
+
+\paragraph{\(\beta\) update (1-tap NLMS).}
+We set
+\[
+\eta = \eta_{\max}p^2,
+\quad
+\beta \leftarrow \mathrm{clip}\!\left(\beta + \eta \frac{x_B\,u_2}{x_B^2+\varepsilon},\; \beta_{\min},\beta_{\max}\right).
+\]
+
+\subsection{Optional Real-Time DSP Chain}
+After beamforming, LombardEar can apply (i) acoustic echo cancellation (AEC) using NLMS with a reference of the prior output sample, (ii) automatic gain control (AGC), and (iii) a noise gate. These blocks are individually switchable at runtime to support ablation and tuning.
+
+\subsection{Algorithm Summary (Pseudo-code and Complexity)}
+Algorithm~\ref{alg:lombardear-gsc} summarizes the per-sample update used in our time-domain 3-channel GSC. The core computation is dominated by the AIC convolution and update over an \(M\)-sample window, resulting in \(O(M)\) time per sample and \(O(M)\) memory for histories and weights.
+
+\begin{algorithm}
+\caption{LombardEar time-domain 3-channel GSC with leakage-aware dual-loop adaptation (per sample)}
+\label{alg:lombardear-gsc}
+\begin{algorithmic}[1]
+\Require Mic samples \(x_L, x_R, x_B\); state \(\{w_1,w_2,u_1,u_2,E_d,E_{u2},E_{du2},\beta,p\_idx\}\); params \(\{M,\alpha,\varepsilon,\mu_{\max},\eta_{\max},\lambda,g_{\mathrm{lo}},g_{\mathrm{hi}},\beta_{\min},\beta_{\max}\}\)
+\Ensure Enhanced sample \(y\)
+\State \(\mathrm{mid} \gets \tfrac{1}{2}(x_L + x_R)\); \(d \gets \mathrm{mid}\)
+\State \(u_1 \gets x_L - x_R\); \(u_2 \gets \mathrm{mid} - \beta \cdot x_B\)
+\State Store \(u_1,u_2\) into ring buffers at index \(p\_idx\)
+\State \(\hat{y} \gets \sum_{k=0}^{M-1} w_1[k]\cdot u_1[n-k] + \sum_{k=0}^{M-1} w_2[k]\cdot u_2[n-k]\)
+\State \(e \gets d - \hat{y}\) \Comment{enhanced/error output}
+\State Update EWMAs: \(E_d \leftarrow (1-\alpha)E_d + \alpha d^2\), \(E_{u2} \leftarrow (1-\alpha)E_{u2} + \alpha u_2^2\), \(E_{du2} \leftarrow (1-\alpha)E_{du2} + \alpha d\,u_2\)
+\State \(\gamma \gets \frac{E_{du2}}{\sqrt{E_dE_{u2}}+\varepsilon}\); \(g \gets |\gamma|\)
+\State \(p \gets \mathrm{clip01}\big(\frac{g-g_{\mathrm{lo}}}{g_{\mathrm{hi}}-g_{\mathrm{lo}}}\big)\) \Comment{soft rate control}
+\State \(\mu_{\mathrm{AIC}} \gets \mu_{\max}(1-p)^2\); \(\eta \gets \eta_{\max}p^2\)
+\State \(P_u \gets \sum u_1^2 + \sum u_2^2\) over the window; \(s \gets \frac{\mu_{\mathrm{AIC}}\,e}{P_u+\varepsilon}\); \(c \gets (1-\lambda)\)
+\For{\(k=0\) to \(M-1\)}
+  \State \(w_1[k] \gets c\,w_1[k] + s\,u_1[n-k]\)
+  \State \(w_2[k] \gets c\,w_2[k] + s\,u_2[n-k]\)
+\EndFor
+\State \(\beta \gets \mathrm{clip}\big(\beta + \eta \cdot \frac{x_B\,u_2}{x_B^2+\varepsilon},\beta_{\min},\beta_{\max}\big)\)
+\State \(p\_idx \gets (p\_idx + 1) \bmod M\)
+\State \Return \(y \gets e\)
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Key Parameters}
+Table~\ref{tab:params} lists the primary parameters exposed by the implementation for tuning and ablation.
+
+\begin{table}
+\caption{Key GSC parameters (typical ranges depend on device geometry and noise conditions).}
+\label{tab:params}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Parameter & Meaning \\ \midrule
+\(M\) & FIR length for AIC filters \(w_1,w_2\) \\
+\(\alpha\) & EWMA smoothing for leakage estimates \\
+\(\mu_{\max}\) & Maximum AIC step size (scaled by \((1-p)^2\)) \\
+\(\eta_{\max}\) & Maximum \(\beta\) step size (scaled by \(p^2\)) \\
+\(\lambda\) & Leaky NLMS factor (weight decay) \\
+\(g_{\mathrm{lo}}, g_{\mathrm{hi}}\) & Leakage thresholds for soft rate control \(p\) \\
+\(\beta_{\min}, \beta_{\max}\) & Clamps for \(\beta\) \\ \bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Latency Considerations for Open-Ear Listening}
+Low end-to-end latency is critical to avoid comb filtering between direct and processed paths. LombardEar is designed to operate with small I/O buffers and per-sample processing in the core beamformer to minimize algorithmic delay; the remaining latency is dominated by the audio I/O subsystem and buffering strategy (platform-dependent). We treat low-latency configuration as a first-class design goal and expose key parameters for experimentation.
+
+\section{Discussion and Limitations}
+% TODO: Add brief limitations once evaluation/hardware details are finalized.
+Key limitations include the current reliance on a fixed geometric microphone arrangement and the need for careful parameter tuning under highly non-stationary interference. The system is intended as a research platform rather than a production hearing aid.
+
+\section{Conclusion}
+LombardEar is a real-time assistive listening system that emphasizes a target conversational stream using a low-latency, leakage-aware three-microphone GSC beamformer and an optional DSP chain. By aligning algorithmic design with open-ear latency constraints, LombardEar provides a practical platform for exploring ASA-motivated approaches to conversational listening support in noise.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
+

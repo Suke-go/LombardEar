@@ -31,6 +31,20 @@ void server_set_device_list(const char *devices_json);
 /// set.
 int server_get_pending_output_device(int *new_device_id);
 
+/// Update jitter buffer statistics (called from audio thread).
+/// @param delay_ms Current buffer delay
+/// @param jitter_mean_ms Mean jitter (EWMA)
+/// @param jitter_std_ms Jitter standard deviation
+/// @param fill_ratio Buffer fill ratio [0, 1]
+void server_update_jitter_stats(float delay_ms, float jitter_mean_ms,
+                                float jitter_std_ms, float fill_ratio);
+
+/// Update phase alignment offsets (called from DSP thread).
+/// @param offsets Array of phase offsets in samples (ch1, ch2, ch3 relative to
+/// ch0)
+/// @param num_channels Number of offset values (typically 3 for 4-ch system)
+void server_update_phase_offsets(const float *offsets, int num_channels);
+
 #ifdef __cplusplus
 }
 #endif

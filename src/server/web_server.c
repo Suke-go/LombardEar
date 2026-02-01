@@ -37,6 +37,17 @@ static char s_device_list_json[4096] = "[]";
 // Pending output device change
 static volatile int s_pending_output_device = -1; // -1 means no change pending
 
+// Jitter buffer statistics (from audio thread)
+static volatile float s_jitter_delay_ms = 0.0f;
+static volatile float s_jitter_mean_ms = 0.0f;
+static volatile float s_jitter_std_ms = 0.0f;
+static volatile float s_jitter_fill = 0.0f;
+
+// Phase alignment offsets (from DSP thread)
+#define MAX_PHASE_CHANNELS 4
+static volatile float s_phase_offsets[MAX_PHASE_CHANNELS] = {0};
+static volatile int s_phase_num_channels = 0;
+
 void server_update_rms(float l, float r, float b, float err) {
   s_rms_l = l;
   s_rms_r = r;
@@ -88,16 +99,52 @@ int server_get_pending_output_device(int *new_device_id) {
   return 0;
 }
 
+void server_update_jitter_stats(float delay_ms, float jitter_mean_ms,
+                                float jitter_std_ms, float fill_ratio) {
+  s_jitter_delay_ms = delay_ms;
+  s_jitter_mean_ms = jitter_mean_ms;
+  s_jitter_std_ms = jitter_std_ms;
+  s_jitter_fill = fill_ratio;
+}
+
+void server_update_phase_offsets(const float *offsets, int num_channels) {
+  if (num_channels > MAX_PHASE_CHANNELS)
+    num_channels = MAX_PHASE_CHANNELS;
+  s_phase_num_channels = num_channels;
+  for (int i = 0; i < num_channels; i++) {
+    s_phase_offsets[i] = offsets[i];
+  }
+}
+
 static struct mg_mgr mgr;
 static int g_port = 8000;
 
 static void broadcast_stats(struct mg_mgr *m) {
-  char json[512];
-  // Simple JSON construction
+  char json[1024];
+
+  // Build phase offsets array string
+  char phase_str[128] = "[]";
+  if (s_phase_num_channels > 0) {
+    int pos = 0;
+    pos += snprintf(phase_str + pos, sizeof(phase_str) - pos, "[");
+    for (int i = 0; i < s_phase_num_channels; i++) {
+      pos += snprintf(phase_str + pos, sizeof(phase_str) - pos, "%.2f%s",
+                      s_phase_offsets[i],
+                      (i < s_phase_num_channels - 1) ? "," : "");
+    }
+    snprintf(phase_str + pos, sizeof(phase_str) - pos, "]");
+  }
+
+  // Extended JSON with jitter and phase stats
   int len = snprintf(json, sizeof(json),
                      "{\"l\": %.4f, \"r\": %.4f, \"b\": %.4f, \"e\": %.4f, "
-                     "\"beta\": %.4f, \"mu\": %.6f}",
-                     s_rms_l, s_rms_r, s_rms_b, s_rms_err, s_beta, s_mu);
+                     "\"beta\": %.4f, \"mu\": %.6f, "
+                     "\"jitter\": {\"delay\": %.1f, \"mean\": %.2f, \"std\": "
+                     "%.2f, \"fill\": %.2f}, "
+                     "\"phase\": %s}",
+                     s_rms_l, s_rms_r, s_rms_b, s_rms_err, s_beta, s_mu,
+                     s_jitter_delay_ms, s_jitter_mean_ms, s_jitter_std_ms,
+                     s_jitter_fill, phase_str);
 
   if (len > 0) {
     for (struct mg_connection *c = m->conns; c; c = c->next) {

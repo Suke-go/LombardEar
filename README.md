@@ -3,7 +3,7 @@
 **Real-time 3-Microphone Hearing Aid Audio Processing System**
 
 [![Language](https://img.shields.io/badge/Language-C99-blue.svg)](https://en.wikipedia.org/wiki/C99)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-green.svg)](#platform-support)
+[![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-green.svg)](#platform-support)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 LombardEar is a low-latency, research-grade hearing aid audio processing system implementing a **Time-domain 3-channel Generalized Sidelobe Canceller (GSC)** with leakage-aware dual-loop adaptation. Designed for both Windows and Ubuntu Linux, it provides a real-time audio processing pipeline with a web-based control interface.
@@ -72,6 +72,10 @@ The **Generalized Sidelobe Canceller (GSC)** implements adaptive beamforming:
 ```
 LombardEar/
 ├── CMakeLists.txt          # Build configuration
+├── LICENSE                 # MIT License
+├── README.md               # Project documentation
+├── docs/
+│   └── plan.md             # Development plan
 ├── config/
 │   └── default.json        # Runtime configuration
 ├── src/
@@ -102,6 +106,10 @@ LombardEar/
 │   └── third_party/
 │       └── mongoose/       # Embedded HTTP/WebSocket server
 ├── web/
+│   ├── css/
+│   │   └── style.css       # Dashboard styles
+│   ├── js/
+│   │   └── script.js       # Dashboard logic
 │   └── index.html          # Web UI dashboard
 └── tests/
     ├── test_gsc_offline.c  # GSC unit tests
@@ -128,6 +136,12 @@ LombardEar/
 
 ### Prerequisites
 
+**macOS (recommended for Lark A1):**
+```bash
+# Install Homebrew and PortAudio
+brew install portaudio cmake
+```
+
 **Windows:**
 ```powershell
 # Install via vcpkg
@@ -141,11 +155,22 @@ sudo apt install portaudio19-dev cmake build-essential
 
 ### Build
 
+**macOS (Quick Start):**
 ```bash
 # Clone and build
 git clone https://github.com/yourusername/LombardEar.git
 cd LombardEar
 
+# Use the Mac build script
+chmod +x scripts/build_mac.sh
+./scripts/build_mac.sh
+
+# Or run tests too
+./scripts/build_mac.sh test
+```
+
+**Manual Build (All Platforms):**
+```bash
 # Configure
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
@@ -153,17 +178,47 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
+### Hollyland Lark A1 Setup (macOS)
+
+For 4-channel wireless microphone input with 2x Rx2 dongles:
+
+```bash
+# Interactive setup guide
+chmod +x scripts/setup_audio_mac.sh
+./scripts/setup_audio_mac.sh
+```
+
+**Manual Setup:**
+1. Connect both Lark A1 Rx2 USB-C dongles
+2. Open **Audio MIDI Setup** (Cmd+Space → "Audio MIDI Setup")
+3. Click **+** → **Create Aggregate Device**
+4. Check both Lark A1 devices
+5. Rename to "LombardEar 4ch"
+
 ### Run
 
 ```bash
 # List audio devices
-./build/Release/lombardear --list-devices
+./build/lombardear --list-devices
 
 # Run with default config
-./build/Release/lombardear
+./build/lombardear
 ```
 
 Open `http://localhost:8000` in your browser to access the Web UI.
+
+### WebSocket Telemetry (New)
+
+The WebSocket now includes jitter and phase statistics:
+
+```json
+{
+  "l": 0.1, "r": 0.1, "b": 0.05, "e": 0.02,
+  "beta": 0.5, "mu": 0.001,
+  "jitter": {"delay": 45.2, "mean": 2.1, "std": 0.8, "fill": 0.75},
+  "phase": [0.0, -1.2, 0.5, 0.3]
+}
+```
 
 ---
 

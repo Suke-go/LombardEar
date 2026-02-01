@@ -73,8 +73,8 @@ float gsc_process_sample(GscState *st, const GscConfig *cfg, float xL, float xR,
   // 3. Filter (Convolution)
   float yhat = 0.0f;
 
-// #ifdef __AVX2__
-#if 0  // Force scalar for stability check
+// AVX2 SIMD optimization path
+#ifdef __AVX2__
   // Limit stack buffer usage. If M > 256, strictly fallback or malloc (avoided
   // here for speed)
   if (M <= 256) {
@@ -273,6 +273,115 @@ float gsc_process_sample(GscState *st, const GscConfig *cfg, float xL, float xR,
   st->p_idx = (p + 1) % M;
 
   // Debug stats copy
+  st->last_gamma = gamma;
+  st->last_p = p_control;
+  st->last_mu = muAIC;
+  st->last_eta = etaBeta;
+  st->last_y = e;
+
+  return e;
+}
+
+// 4-channel mode with direction selection
+float gsc_process_sample_4ch(GscState *st, const GscConfig *cfg, float xTL,
+                             float xTR, float xBL, float xBR,
+                             BeamDirection dir) {
+  int M = st->M;
+  int p = st->p_idx;
+
+  // 1. Compute beams based on direction
+  float d, u1_raw;
+  switch (dir) {
+  case BEAM_DIR_FRONT:
+    d = 0.5f * (xTL + xTR);      // Desired: front pair
+    u1_raw = 0.5f * (xBL + xBR); // Reference: back pair
+    break;
+  case BEAM_DIR_BACK:
+    d = 0.5f * (xBL + xBR);      // Desired: back pair
+    u1_raw = 0.5f * (xTL + xTR); // Reference: front pair
+    break;
+  case BEAM_DIR_LEFT:
+    d = 0.5f * (xTL + xBL);      // Desired: left pair
+    u1_raw = 0.5f * (xTR + xBR); // Reference: right pair
+    break;
+  case BEAM_DIR_RIGHT:
+  default:
+    d = 0.5f * (xTR + xBR);      // Desired: right pair
+    u1_raw = 0.5f * (xTL + xBL); // Reference: left pair
+    break;
+  }
+
+  // u2: left-right difference (independent of direction)
+  float u2_raw = 0.5f * ((xTL + xBL) - (xTR + xBR));
+
+  // Apply beta correction to u1 (leakage compensation)
+  float u1 = u1_raw - st->beta * d;
+  float u2 = u2_raw;
+
+  // 2. Update history buffer
+  st->u1_hist[p] = u1;
+  st->u2_hist[p] = u2;
+
+  // 3. Filter (Convolution) - same as 3ch version
+  float yhat = 0.0f;
+  for (int k = 0; k < M; k++) {
+    int idx = (p - k + M) % M;
+    yhat += st->w1[k] * st->u1_hist[idx];
+    yhat += st->w2[k] * st->u2_hist[idx];
+  }
+
+  // 4. Error output
+  float e = d - yhat;
+
+  // 5. Leakage Detection (EWMA)
+  st->Ed = (1.0f - cfg->alpha) * st->Ed + cfg->alpha * d * d;
+  st->Eu2 = (1.0f - cfg->alpha) * st->Eu2 + cfg->alpha * u1 * u1;
+  st->Edu2 = (1.0f - cfg->alpha) * st->Edu2 + cfg->alpha * d * u1;
+
+  float denom = fast_sqrtf(st->Ed * st->Eu2) + cfg->eps;
+  float gamma = st->Edu2 / denom;
+  float g = fast_absf(gamma);
+
+  // 6. Soft Rate Control
+  float p_control = 0.0f;
+  if (g <= cfg->g_lo) {
+    p_control = 0.0f;
+  } else if (g >= cfg->g_hi) {
+    p_control = 1.0f;
+  } else {
+    p_control = (g - cfg->g_lo) / (cfg->g_hi - cfg->g_lo);
+  }
+
+  float one_minus_p = 1.0f - p_control;
+  float muAIC = cfg->mu_max * one_minus_p * one_minus_p;
+  float etaBeta = cfg->eta_max * p_control * p_control;
+
+  // 7. AIC Update (Leaky NLMS)
+  float Pu = 0.0f;
+  for (int k = 0; k < M; k++) {
+    Pu += st->u1_hist[k] * st->u1_hist[k];
+    Pu += st->u2_hist[k] * st->u2_hist[k];
+  }
+
+  float norm = Pu + cfg->eps;
+  float factor = muAIC * e / norm;
+  float leak = 1.0f - cfg->leak_lambda;
+
+  for (int k = 0; k < M; k++) {
+    int idx = (p - k + M) % M;
+    st->w1[k] = leak * st->w1[k] + factor * st->u1_hist[idx];
+    st->w2[k] = leak * st->w2[k] + factor * st->u2_hist[idx];
+  }
+
+  // 8. Beta Update (1-tap NLMS) - adapts to leakage between d and u1_raw
+  float factor_beta = etaBeta * (u1_raw * u1) / (u1_raw * u1_raw + cfg->eps);
+  st->beta += factor_beta;
+  st->beta = clampf(st->beta, cfg->beta_min, cfg->beta_max);
+
+  // 9. Advance index
+  st->p_idx = (p + 1) % M;
+
+  // Debug stats
   st->last_gamma = gamma;
   st->last_p = p_control;
   st->last_mu = muAIC;

@@ -17,8 +17,22 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 if(MSVC)
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
   add_compile_options(/W4 /utf-8 /arch:AVX2)
+elseif(APPLE)
+  add_compile_options(-Wall -Wextra -Wpedantic)
+  # macOS: Apple Silicon uses NEON (auto-enabled), Intel uses AVX
+  include(CheckCCompilerFlag)
+  check_c_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+  if(COMPILER_SUPPORTS_AVX2)
+    add_compile_options(-mavx2 -mfma)
+  endif()
 else()
   add_compile_options(-Wall -Wextra -Wpedantic)
+  # Linux: enable AVX2 if supported
+  include(CheckCCompilerFlag)
+  check_c_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
+  if(COMPILER_SUPPORTS_AVX2)
+    add_compile_options(-mavx2 -mfma)
+  endif()
 endif()
 
 # ---- Dependencies: cJSON via FetchContent ----
@@ -59,7 +73,8 @@ else()
       message(FATAL_ERROR
         "PortAudio not found.\n"
         "Install PortAudio development package and reconfigure.\n"
-        "Linux(Ubuntu): install portaudio19-dev\n"
+        "macOS: brew install portaudio\n"
+        "Linux(Ubuntu): sudo apt install portaudio19-dev\n"
         "Windows: install PortAudio (e.g., vcpkg portaudio) or set CMAKE_PREFIX_PATH / LIB/INCLUDE paths.\n"
         "Detected:\n"
         "  PORTAUDIO_INCLUDE_DIR='${PORTAUDIO_INCLUDE_DIR}'\n"
@@ -92,6 +107,13 @@ add_library(le_dsp STATIC
   src/dsp/aec.c
   src/dsp/agc.c
   src/dsp/noise_gate.c
+  src/dsp/biquad.c
+  src/dsp/multiband.c
+  src/dsp/steer.c
+  src/dsp/doa.c
+  src/dsp/fast_math.c
+  src/dsp/steer_fast.c
+  src/dsp/phase_align.c
 )
 target_include_directories(le_dsp PUBLIC ${LE_INC_DIRS})
 
@@ -115,13 +137,14 @@ if(LE_BUILD_APP)
   add_executable(lombardear
     src/main.c
     src/audio/audio_io.c
+    src/audio/jitter_buffer.c
     ${PLATFORM_SRC}
   )
   target_include_directories(lombardear PRIVATE ${LE_INC_DIRS})
   target_link_libraries(lombardear PRIVATE le_dsp le_utils portaudio::portaudio)
 
-  # math library on unix
-  if(UNIX AND NOT APPLE)
+  # math library on unix (including Apple for libm)
+  if(UNIX)
     target_link_libraries(lombardear PRIVATE m)
   endif()
 
@@ -146,12 +169,61 @@ if(LE_BUILD_TESTS)
   target_include_directories(test_gsc_offline PRIVATE ${LE_INC_DIRS})
   target_link_libraries(test_gsc_offline PRIVATE cjson)
 
-  if(UNIX AND NOT APPLE)
+  if(UNIX)
     target_link_libraries(test_gsc_offline PRIVATE m)
   endif()
 
 
   add_test(NAME test_gsc_offline COMMAND test_gsc_offline)
+
+  # Spatial-Spectral processor test
+  add_executable(test_spatial_spectral
+    tests/test_spatial_spectral.c
+    src/dsp/biquad.c
+    src/dsp/multiband.c
+    src/dsp/steer.c
+  )
+  target_include_directories(test_spatial_spectral PRIVATE ${LE_INC_DIRS})
+
+  if(UNIX)
+    target_link_libraries(test_spatial_spectral PRIVATE m)
+  endif()
+
+  add_test(NAME test_spatial_spectral COMMAND test_spatial_spectral)
+
+  # DSP Benchmark
+  add_executable(benchmark_dsp
+    tests/benchmark_dsp.c
+  )
+  target_include_directories(benchmark_dsp PRIVATE ${LE_INC_DIRS})
+  target_link_libraries(benchmark_dsp PRIVATE le_dsp)
+  
+  if(UNIX)
+    target_link_libraries(benchmark_dsp PRIVATE m)
+  endif()
+
+  # Jitter Buffer Test
+  add_executable(test_jitter_buffer
+    tests/test_jitter_buffer.c
+    src/audio/jitter_buffer.c
+  )
+  target_include_directories(test_jitter_buffer PRIVATE ${LE_INC_DIRS})
+  if(UNIX)
+    target_link_libraries(test_jitter_buffer PRIVATE m)
+  endif()
+  add_test(NAME test_jitter_buffer COMMAND test_jitter_buffer)
+
+  # Phase Alignment Test
+  add_executable(test_phase_align
+    tests/test_phase_align.c
+    src/dsp/phase_align.c
+    src/dsp/fast_math.c
+  )
+  target_include_directories(test_phase_align PRIVATE ${LE_INC_DIRS})
+  if(UNIX)
+    target_link_libraries(test_phase_align PRIVATE m)
+  endif()
+  add_test(NAME test_phase_align COMMAND test_phase_align)
 endif()
 
 # ---- Web Server ----

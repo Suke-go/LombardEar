@@ -20,6 +20,14 @@ typedef struct {
   float beta_max;    // Beta limit max
 } GscConfig;
 
+// Beam direction for 4-channel mode
+typedef enum {
+  BEAM_DIR_FRONT = 0,
+  BEAM_DIR_BACK,
+  BEAM_DIR_LEFT,
+  BEAM_DIR_RIGHT
+} BeamDirection;
+
 typedef struct {
   // State variables
   int M;
@@ -54,12 +62,21 @@ int gsc_init(GscState *st, const GscConfig *cfg, void *mem, size_t mem_bytes);
 
 void gsc_reset(GscState *st);
 
-// Process one sample set.
+// Process one sample set (legacy 3-channel mode).
 // xL, xR: Left/Right mic inputs
 // xB: Back mic input
 // Returns: Processed output sample e[n]
 float gsc_process_sample(GscState *st, const GscConfig *cfg, float xL, float xR,
                          float xB);
+
+// Process one sample set (4-channel mode with direction selection).
+// xTL, xTR: Temple Left/Right (front)
+// xBL, xBR: Back Left/Right
+// dir: Beam steering direction
+// Returns: Processed output sample
+float gsc_process_sample_4ch(GscState *st, const GscConfig *cfg, float xTL,
+                             float xTR, float xBL, float xBR,
+                             BeamDirection dir);
 
 #ifdef __cplusplus
 }
